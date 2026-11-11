@@ -36,7 +36,7 @@ The interface is intentionally square-cornered, typography-led, and restrained: 
 - Centralized validation and error responses
 - MongoDB indexes for product search, filtering, sorting, and category aggregation
 - 27 integration tests using Node's test runner, Supertest, and MongoDB Memory Server
-- Vite proxy in development; same-origin `/api` proxy through Vercel in production
+- Vite proxy in development; configurable API base URL with automatic `/api` prefix normalization in production
 
 ## Tech stack
 
@@ -181,7 +181,7 @@ Backend:
 | `CLIENT_URL` | No | `http://localhost:5173` | Comma-separated allowed browser origins |
 | `JWT_EXPIRES_IN` | No | `7d` | Token and cookie lifetime |
 | `JWT_COOKIE_NAME` | No | `shopsphere_token` | Auth cookie name |
-| `COOKIE_SAME_SITE` | No | `lax` | `lax`, `strict`, or `none`; keep `lax` for the Vercel same-origin proxy |
+| `COOKIE_SAME_SITE` | No | `lax` | `lax`, `strict`, or `none`; use `none` when the browser calls the Render API directly cross-site, keep `lax` for the Vercel same-origin proxy |
 | `ALLOW_ADMIN_REGISTRATION` | No | `true` outside production | Allow public `POST /api/auth/admin/register`; disabled by default in production |
 | `ADMIN_NAME` | Seed only | `ShopSphere Admin` | Administrator display name for the seed script |
 | `ADMIN_EMAIL` | Seed only | - | Administrator email for the seed script |
@@ -198,14 +198,14 @@ Frontend:
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `VITE_API_URL` | No | `/api` | API base URL. Leave unset when using the Vite proxy or Vercel proxy. |
+| `VITE_API_URL` | No | `/api` | API base URL. Accepts the backend origin with or without the `/api` suffix — it is appended automatically and never duplicated. Leave unset when using the Vite proxy or Vercel proxy. |
 | `VITE_ALLOW_ADMIN_REGISTRATION` | No | `true` | Show the self-service admin registration page and links; set `false` in production |
 
-Vercel project variable used by `frontend/vercel.json`:
+Vercel project variable used by `frontend/vercel.json` (proxy mode only):
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
-| `BACKEND_URL` | Yes | - | Render origin, for example `https://shopsphere-api.onrender.com` (no trailing slash) |
+| `BACKEND_URL` | Proxy mode | - | Render origin, for example `https://shopsphere-api.onrender.com` (no trailing slash) |
 
 ## Scripts
 
@@ -298,7 +298,7 @@ MONGO_URI=mongodb+srv://...
 CLIENT_URL=https://<your-vercel-production-domain>
 ```
 
-`JWT_SECRET` is generated automatically. `COOKIE_SAME_SITE=lax` and `ALLOW_ADMIN_REGISTRATION=false` are set by the blueprint. Optionally add `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` for uploads.
+`JWT_SECRET` is generated automatically. `COOKIE_SAME_SITE=none` and `ALLOW_ADMIN_REGISTRATION=false` are set by the blueprint. `COOKIE_SAME_SITE=none` is required because the browser calls the Render origin directly from the Vercel domain (cross-site); cookies are still `HttpOnly` and `Secure` over HTTPS. Optionally add `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` for uploads.
 
 4. Deploy and note the service origin, for example `https://shopsphere-api.onrender.com`.
 5. Seed products from the Render shell:
@@ -317,19 +317,23 @@ Alternatively, temporarily set `ALLOW_ADMIN_REGISTRATION=true`, create the accou
 
 ### 3. Frontend on Vercel
 
+**Direct mode (default):** the browser calls the Render API origin directly.
+
 1. Import the repository and set **Root Directory** to `frontend`.
-2. Framework preset: Vite. The committed `frontend/vercel.json` supplies the build command, output directory, `/api` proxy, and SPA fallback.
-3. Add these Vercel environment variables for Production (and Preview if needed):
+2. Framework preset: Vite. The committed `frontend/vercel.json` supplies the build command, output directory, and SPA fallback.
+3. Add this Vercel environment variable for Production (and Preview if needed):
 
 ```text
-BACKEND_URL=https://<your-render-service>.onrender.com
+VITE_API_URL=https://<your-render-service>.onrender.com
 VITE_ALLOW_ADMIN_REGISTRATION=false
 ```
 
-`BACKEND_URL` must be the bare Render origin with no trailing slash and no `/api` suffix. Do **not** set `VITE_API_URL`.
+`VITE_API_URL` may be the bare Render origin or include the `/api` suffix — the frontend normalizes it, appends `/api` when missing, and never duplicates it. Setting it to the bare origin (no trailing slash) is recommended.
 
-4. Deploy. Vercel proxies `/api/*` to `${BACKEND_URL}/api/*` at request time, so the browser stays on the Vercel origin and the httpOnly `SameSite=Lax` cookie works.
+4. Deploy. The browser calls `https://<your-render-service>.onrender.com/api/*` directly with `withCredentials`, so `CLIENT_URL` on Render must list the Vercel origin and `COOKIE_SAME_SITE` must be `none`.
 5. Return to Render and set `CLIENT_URL` to the final Vercel production origin. For authenticated previews, use a comma-separated list of the exact origins, then redeploy the backend.
+
+**Proxy mode (alternative):** leave `VITE_API_URL` unset, add `BACKEND_URL=https://<your-render-service>.onrender.com` on Vercel instead, and set `COOKIE_SAME_SITE=lax` on Render. Vercel proxies `/api/*` to `${BACKEND_URL}/api/*` at request time, so the browser stays on the Vercel origin and the httpOnly `SameSite=Lax` cookie works, including in Safari.
 
 ### 4. Verify the deployment
 
@@ -339,7 +343,7 @@ VITE_ALLOW_ADMIN_REGISTRATION=false
 4. Confirm `/admin/register` redirects to the login page when registration is disabled.
 5. Upload or paste a product image if Cloudinary is configured.
 
-Using the Vercel proxy keeps API requests same-origin in the browser. Pointing the frontend directly at Render with `VITE_API_URL` requires `COOKIE_SAME_SITE=none` plus HTTPS, and third-party cookie blocking can still break authentication in Safari. Preview deployments have unique origins, so add each one to `CLIENT_URL` when you need auth there.
+Using `VITE_API_URL` to point the browser directly at Render requires `COOKIE_SAME_SITE=none` plus HTTPS (both configured by default now); third-party cookie blocking can still break authentication in Safari — use the Vercel `BACKEND_URL` proxy mode if that matters. Preview deployments have unique origins, so add each one to `CLIENT_URL` when you need auth there.
 
 ## Testing
 

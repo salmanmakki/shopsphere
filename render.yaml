@@ -19,7 +19,7 @@ services:
       - key: CLIENT_URL
         sync: false
       - key: COOKIE_SAME_SITE
-        value: lax
+        value: none
       - key: ALLOW_ADMIN_REGISTRATION
         value: "false"
       - key: CLOUDINARY_CLOUD_NAME
